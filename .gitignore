@@ -1,0 +1,43 @@
+# Bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Build / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+.env/
+.envrc
+.venv/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment variables
+.env
+*.env
+
+# API keys / secrets
+secrets.json
+credentials.json
+
+# Vector databases
+chroma_db/
+qdrant_storage/
+weaviate/
+faiss_index/
+
+# Embeddings cache
+embeddings/
+cache/
+
+# LLM outputs / evaluation logs
+logs/
+evaluations/
+metrics.json
