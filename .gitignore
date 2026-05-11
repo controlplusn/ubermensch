@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 *.pyo
+.mypy_cache/
+.ruff_cache/
 
 # Build / packaging
 dist/
@@ -41,3 +43,13 @@ cache/
 logs/
 evaluations/
 metrics.json
+
+# Vault runtime cache (user-specific, not project files)
+.vault/
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
