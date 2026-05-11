@@ -18,6 +18,38 @@ class Chunk:
     chunk_id: str
 
 
+def chunk_notes(
+    notes,
+    chunk_size: int = 200,
+    overlap: int = 40
+) -> list[Chunk]:
+    # Called after ingestion
+    step("CHUNK", "Splitting notes into embeddable chunks")
+    log("Strategy: heading-aware splitting → word-count sliding window")
+    log(f"Chunk size: {chunk_size} words  |  Overlap: {overlap} words")
+    log("Overlap ensures sentences near boundaries aren't lost from retrieval")
+ 
+    all_chunks: list[Chunk] = []
+    total_skipped = 0
+ 
+    for note in notes:
+        note_chunks = _chunk_note(note.title, note.path, note.content,
+                                  chunk_size, overlap)
+        if not note_chunks:
+            total_skipped += 1
+            continue
+        all_chunks.extend(note_chunks)
+        log(f"  {note.title:<40}  {len(note_chunks)} chunk(s)")
+ 
+    done(
+        "CHUNK",
+        f"{len(all_chunks)} chunks from {len(notes) - total_skipped} notes"
+        + (f"  ({total_skipped} empty notes skipped)" if total_skipped else ""),
+    )
+    return all_chunks
+
+
+
 def _chunk_note(
     title: str,
     path: Path,
