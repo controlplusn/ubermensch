@@ -4,3 +4,4 @@ PyYAML>=6
 sentence-transformers>=2.7
 chromadb>=0.5
 google-genai>=2.0.1
+python-dotenv >= 1.2.2
