@@ -70,6 +70,8 @@ def retrieve(
     top_k: int = 5,
     tag_filter: str | None = None,
 ) -> list[RetrievedChunk]:
+    # tag_filter: optional note title substring filter (future use)
+
     step("RETRIEVE", f"Searching vector store for top {top_k} relevant chunks")
     log("Computing cosine similarity between query and all stored embeddings")
     log("HNSW index makes this fast even across thousands of chunks")
