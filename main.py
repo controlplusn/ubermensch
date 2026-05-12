@@ -108,12 +108,17 @@ def init(
 @app.command()
 def ask(
     question: str = typer.Argument(..., help="Question to ask against your vault"),
-    top_k: int = typer.Option(5, "--top-k", "-k", help="Number of note chunks to retrieve"),
-    no_eval: bool = typer.Option(False, "--no-eval", help="Skip faithfulness scoring"),
-    key: Optional[str] = typer.Option(
-        None, "--key",
-        help="Gemini API key (or set GEMINI_API_KEY env var)",
+    top_k: int = typer.Option(5, "--top-k", "-k", help="Chunks to retrieve per attempt"),
+    eval_mode: bool = typer.Option(
+        False, "--eval",
+        help="Show detailed per-claim faithfulness breakdown",
     ),
+    # TODO: test the --no-eval helper
+    no_eval: bool = typer.Option(
+        False, "--no-eval",
+        help="Skip faithfulness scoring entirely (faster)",
+    ),
+    key: Optional[str] = typer.Option(None, "--key", help="Gemini API key"),
 ) -> None:
     api_key = key or os.environ.get("GEMINI_API_KEY", "")
 
@@ -122,10 +127,11 @@ def ask(
         top_k=top_k,
         api_key=api_key,
         show_eval=not no_eval,
+        eval_verbose=eval_mode,     # --eval
     )
  
     blank()
-    _print_ask_result(result, show_eval=not no_eval)
+    _print_ask_result(result, show_eval=not no_eval, eval_verbose=eval_mode)
 
 
 # Vault status
@@ -191,43 +197,83 @@ def config_cmd(
 
 # Display helpers
 
-def _print_ask_result(result, show_eval: bool = True) -> None:
-    console.print(Rule("[dim]Sources retrieved[/dim]", style="dim"))
-    source_table = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
-    source_table.add_column(style="dim", no_wrap=True)
-    source_table.add_column(style="cyan")
-    source_table.add_column(style="dim")
-
-    for i, chunk in enumerate(result.retrieved_chunks, 1):
-        source_table.add_row(
-            f"{i}.",
-            chunk.note_title,
-            f"relevance {chunk.score:.3f}",
+def _print_ask_result(result, show_eval: bool = True, eval_verbose: bool = False) -> None:
+    # Retry notice
+    if result.attempts > 1:
+        console.print(
+            f"  [dim]ℹ Retrieved after {result.attempts} attempt(s) "
+            f"(re-retrieval loop expanded the query for better coverage)[/dim]\n"
         )
-    console.print(source_table)
+
+    # Sources
+    console.print(Rule("[dim]Sources retrieved[/dim]", style="dim"))
+    src_table = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
+    src_table.add_column(style="dim", no_wrap=True)
+    src_table.add_column(style="cyan")
+    src_table.add_column(style="dim")
+    for i, chunk in enumerate(result.retrieved_chunks, 1):
+        src_table.add_row(f"{i}.", chunk.note_title, f"relevance {chunk.score:.3f}")
+    console.print(src_table)
 
     # Answer panel
     console.print(Rule("[dim]Answer[/dim]", style="dim"))
     console.print(Padding(result.answer, (1, 2)))
 
     # Faithfulness Score
-    if show_eval and result.faithfulness:
-        score = result.faithfulness
-        if score >= 0.7:
-            color, label = "green", "High confidence"
-        elif score >= 0.4:
-            color, label = "yellow", "Moderate confidence"
-        else:
-            color, label = "red", "Low confidence — verify against your notes"
- 
+    if show_eval and result.eval_result is not None:
+        er = result.eval_result
+        color = er.confidence_color
+        label = er.confidence_label
         console.print(Rule(style="dim"))
         console.print(
             Padding(
-                f"[{color}]Faithfulness: {score:.1%}[/{color}]  [dim]{label}[/dim]  "
-                f"[dim]· model: {result.model}[/dim]",
+                f"[{color}]Faithfulness: {er.score:.1%}[/{color}]"
+                f"  [dim]{label}[/dim]"
+                f"  [dim]({er.supported_count}/{er.total_count} claims)[/dim]"
+                f"  [dim]· {result.model}[/dim]",
                 (0, 2),
             )
         )
+
+        # --eval: per-claim table
+        if eval_verbose and er.claims:
+            console.print()
+            console.print(Rule("[dim]Claim-level breakdown (--eval)[/dim]", style="dim"))
+            claim_table = Table(
+                box=box.ROUNDED,
+                show_header=True,
+                header_style="dim",
+                padding=(0, 1),
+                expand=True,
+            )
+            claim_table.add_column("#",        style="dim",  width=3,  no_wrap=True)
+            claim_table.add_column("Claim",    style="white", ratio=5)
+            claim_table.add_column("Overlap",  style="dim",  width=9,  no_wrap=True)
+            claim_table.add_column("Verdict",  width=14,     no_wrap=True)
+            claim_table.add_column("Matched words", style="dim", ratio=2)
+ 
+            for i, cr in enumerate(er.claims, 1):
+                verdict = (
+                    "[green]✓ supported[/green]"
+                    if cr.supported
+                    else "[red]✗ unsupported[/red]"
+                )
+                matched_str = ", ".join(cr.matched[:6]) + ("…" if len(cr.matched) > 6 else "")
+                claim_table.add_row(
+                    str(i),
+                    cr.text[:120] + ("…" if len(cr.text) > 120 else ""),
+                    f"{cr.overlap:.0%}",
+                    verdict,
+                    matched_str or "[dim]none[/dim]",
+                )
+ 
+            console.print(Padding(claim_table, (0, 2)))
+ 
+            if er.skipped:
+                console.print(
+                    f"\n  [dim]  {er.skipped} meta-sentence(s) excluded from scoring "
+                    f"(e.g. 'I couldn't find...')[/dim]"
+                )
  
     console.print()
 
@@ -248,7 +294,7 @@ def _print_summary(notes: list, vault_path: Path, total_chunks: int = 0) -> None
     for n in notes:
         for t in n.tags:
             tag_freq[t] = tag_freq.get(t, 0) + 1
-    top_tags    = sorted(tag_freq.items(), key=lambda x: -x[1])[:12]
+    top_tags = sorted(tag_freq.items(), key=lambda x: -x[1])[:12]
     top_linked  = sorted(notes, key=lambda n: len(n.backlinks), reverse=True)[:5]
 
     # Header
