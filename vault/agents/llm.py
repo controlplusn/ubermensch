@@ -66,14 +66,14 @@ def build_rag_prompt(query: str, chunks) -> str:
     log("Instruction: answer ONLY from provided notes, never from general knowledge")
 
     context_parts = []
-    seen_titles = set()
+    seen_titles = []
     for chunk in chunks:
         if chunk.note_title not in seen_titles:
-            seen_titles.add(chunk.note_title)
+            seen_titles.append(chunk.note_title)
         context_parts.append(
             f"--- [{chunk.note_title}] (relevance: {chunk.score:.2f}) ---\n{chunk.text}"
         )
-
+    
     context = "\n\n".join(context_parts)
     source_list = ", ".join(f"[{t}]" for t in seen_titles)
 
