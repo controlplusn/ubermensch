@@ -5,6 +5,8 @@ from rich.console import Console
 from rich.text import Text
 from rich.theme import Theme
  
+
+# TODO: Make the logger a markdown and hide first the internal details and only show the answer at the end
 _theme = Theme(
     {
         "step":  "bold cyan",
