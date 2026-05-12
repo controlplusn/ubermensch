@@ -14,9 +14,9 @@ COLLECTION_NAME = "vault_notes"
 class RetrievedChunk:
     note_title: str
     note_path:  str
-    text:       str
-    score:      float
-    chunk_id:   str
+    text: str
+    score: float
+    chunk_id: str
 
 
 def get_collection():
