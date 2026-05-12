@@ -1,8 +1,11 @@
 from __future__ import annotations
  
 import re
+from dataclasses import dataclass, field
  
-from vault.cli.logger import done, log, step, warn
+from vault.cli.logger import blank, done, log, section, step, warn
+
+DEFAULT_THRESHOLD = 0.35
 
 # Words too common to be useful signal for overlap scoring
 STOPWORDS = {
@@ -16,70 +19,188 @@ STOPWORDS = {
     "this", "that", "these", "those", "it", "its", "they", "them", "their",
     "i", "you", "he", "she", "we", "my", "your", "his", "her", "our",
     "not", "no", "if", "as", "than", "because", "while", "although",
+    "also", "just", "more", "there", "here", "when", "where", "which",
+    "who", "what", "how", "all", "each", "any", "some", "other", "only",
 }
 
+# Sentences that are meta-responses, not real claims — skip from scoring
+META_PATTERNS = [
+    re.compile(r"i couldn.t find", re.IGNORECASE),
+    re.compile(r"the closest relevant", re.IGNORECASE),
+    re.compile(r"your notes (do|don.t|doesn.t) (contain|have|include)", re.IGNORECASE),
+    re.compile(r"there (is|are) no (information|mention|note)", re.IGNORECASE),
+    re.compile(r"based on (the|your) (provided |available )?notes", re.IGNORECASE),
+    re.compile(r"^(note|disclaimer|caveat):", re.IGNORECASE),
+]
+
+
 SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
+CITATION_RE = re.compile(r"\[[^\]]+\]")  # strip [Note Title] citations before scoring
 
 
+# Data models
+@dataclass
+class ClaimResult:
+    text:      str
+    supported: bool
+    overlap:   float
+    key_words: list[str]
+    matched:   list[str]
 
+
+@dataclass
+class EvalResult:
+    score: float
+    claims: list[ClaimResult] = field(default_factory=list)
+    supported_count: int = 0
+    total_count: int = 0
+    needs_retrieval: bool = False   # True if score is below re-retrieval threshold
+    skipped: int = 0
+
+    @property
+    def confidence_label(self) -> str:
+        if self.score >= 0.7:
+            return "High confidence"
+        elif self.score >= 0.4:
+            return "Moderate confidence"
+        else:
+            return "Low confidence — verify against your notes"
+        
+    @property
+    def confidence_color(self) -> str:
+        if self.score >= 0.7:
+            return "green"
+        elif self.score >= 0.4:
+            return "yellow"
+        else:
+            return "red"
+
+
+# Evaluator
 class FaithfulnessEvaluator:
     """
-    Usage:
-        - evaluator = FaithfulnessEvaluator()
-        - score = evaluator.score(answer_text, context_text)
-        - # score ∈ [0.0, 1.0]
+    threshold: keyword overlap ratio for a claim to be "supported"
+    re_retrieval_threshold : EvalResult.needs_retrieval = True when score below this
     """
 
-    def __init__(self, overlap_threshold: float = 0.35):
-        self.threshold = overlap_threshold
+    def __init__(
+        self,
+        threshold: float = DEFAULT_THRESHOLD,
+        re_retrieval_threshold: float = 0.4,
+    ):
+        self.threshold = threshold
+        self.re_retrieval_threshold = re_retrieval_threshold
 
-    def score(self, answer: str, context: str) -> float:
+    def evaluate(
+        self,
+        answer: str,
+        context: str,
+        verbose: bool = False,
+    ) -> EvalResult:
         step("EVAL", "Scoring answer faithfulness against retrieved notes")
-        log("Method: RAGAS-style claim-level keyword overlap (MVP heuristic)")
-        log(f"A claim is 'supported' if ≥{self.threshold:.0%} of its key words appear in context")
+        log(f"Method: RAGAS-style keyword overlap  |  threshold: {self.threshold:.0%}")
+        log("Each sentence in the answer is checked against retrieved note content")
 
-        claims = self._extract_claims(answer)
-        if not claims:
-            log("No scoreable claims found in answer")
-            done("EVAL", "Faithfulness: N/A")
-            return 1.0
+        raw_claims = self._extract_sentences(answer)
+        scoreable, skipped = self._filter_meta(raw_claims)
+
+        if skipped:
+            log(f"Skipped {skipped} meta-sentence(s) (e.g. 'I couldn't find...')")
  
-        log(f"Extracted {len(claims)} claim(s) from answer")
+        if not scoreable:
+            log("No scoreable claims — answer may be empty or entirely meta")
+            done("EVAL", "Faithfulness: N/A (no scoreable claims)")
+            return EvalResult(score=1.0, skipped=skipped)
  
-        supported = 0
-        for i, claim in enumerate(claims, 1):
-            is_supported = self._claim_supported(claim, context)
-            status = "[green]✓ supported[/green]" if is_supported else "[red]✗ unsupported[/red]"
-            log(f"  Claim {i}: {status}  — \"{claim[:60]}{'...' if len(claim) > 60 else ''}\"")
-            if is_supported:
-                supported += 1
+        log(f"Scoring {len(scoreable)} claim(s)")
  
-        score = round(supported / len(claims), 3)
+        claim_results: list[ClaimResult] = []
+        for sentence in scoreable:
+            cr = self._score_claim(sentence, context)
+            claim_results.append(cr)
+ 
+            status = "[green]✓[/green]" if cr.supported else "[red]✗[/red]"
+            overlap_str = f"{cr.overlap:.0%} overlap"
+ 
+            if verbose:
+                # Detailed per-claim output for --eval flag
+                log(f"  {status}  [{overlap_str}]  \"{cr.text[:70]}{'...' if len(cr.text) > 70 else ''}\"")
+                if cr.matched:
+                    log(f"     matched words: {', '.join(cr.matched[:8])}")
+                if not cr.supported and cr.key_words:
+                    unmatched = [w for w in cr.key_words if w not in cr.matched]
+                    if unmatched:
+                        log(f"     [dim]unmatched: {', '.join(unmatched[:6])}[/dim]")
+            else:
+                # Compact output for normal ask
+                log(f"  {status}  {cr.text[:60]}{'...' if len(cr.text) > 60 else ''}")
+ 
+        supported = sum(1 for cr in claim_results if cr.supported)
+        total = len(claim_results)
+        score = round(supported / total, 3) if total else 1.0
+        needs_retrieval = score < self.re_retrieval_threshold
+ 
         color = "green" if score >= 0.7 else "yellow" if score >= 0.4 else "red"
-        done("EVAL", f"Faithfulness: [{color}]{score:.1%}[/{color}]  ({supported}/{len(claims)} claims supported)")
+        done(
+            "EVAL",
+            f"Faithfulness: [{color}]{score:.1%}[/{color}]"
+            f"  ({supported}/{total} claims supported)"
+            + ("  [yellow]→ will re-retrieve[/yellow]" if needs_retrieval else ""),
+        )
  
         if score < 0.4:
             warn("EVAL", "Low faithfulness — answer may contain hallucinated content")
-            log("Consider rephrasing your question or checking if relevant notes are indexed")
+            log("The agent will automatically re-retrieve with an expanded query")
  
-        return score
-    
-    def _extract_claims(self, text: str) -> list[str]:
-        # Strip citation patterns like [Note Title] before scoring
-        clean = re.sub(r"\[[^\]]+\]", "", text)
+        return EvalResult(
+            score=score,
+            claims=claim_results,
+            supported_count=supported,
+            total_count=total,
+            needs_retrieval=needs_retrieval,
+            skipped=skipped,
+        )
+ 
+    def score(self, answer: str, context: str) -> float:
+        return self.evaluate(answer, context, verbose=False).score
+ 
+    def _extract_sentences(self, text: str) -> list[str]:
+        clean = CITATION_RE.sub("", text)
         sentences = SENTENCE_RE.split(clean.strip())
-        return [s.strip() for s in sentences if len(s.strip()) > 15]
+        return [s.strip() for s in sentences if len(s.strip()) > 12]
     
-    def _claim_supported(self, claim: str, context: str) -> bool:
-        claim_words = {
-            w.lower().strip(".,;:!?\"'")
+    def _filter_meta(self, sentences: list[str]) -> tuple[list[str], int]:
+        scoreable, skipped = [], 0
+        for s in sentences:
+            if any(p.search(s) for p in META_PATTERNS):
+                skipped += 1
+            else:
+                scoreable.append(s)
+        return scoreable, skipped
+    
+    def _score_claim(self, claim: str, context: str) -> ClaimResult:
+        key_words = [
+            w.lower().strip(".,;:!?\"'()-")
             for w in claim.split()
-            if w.lower() not in STOPWORDS and len(w) > 2
-        }
-        if not claim_words:
-            return True   # claim is all stopwords — treat as neutral
+            if w.lower().strip(".,;:!?\"'()-") not in STOPWORDS
+            and len(w.strip(".,;:!?\"'()-")) > 2
+        ]
+ 
+        if not key_words:
+            # All stopwords — treat as neutral/supported
+            return ClaimResult(
+                text=claim, supported=True, overlap=1.0,
+                key_words=[], matched=[],
+            )
  
         context_lower = context.lower()
-        matching = sum(1 for w in claim_words if w in context_lower)
-        overlap = matching / len(claim_words)
-        return overlap >= self.threshold
+        matched = [w for w in key_words if w in context_lower]
+        overlap = len(matched) / len(key_words)
+ 
+        return ClaimResult(
+            text=claim,
+            supported=overlap >= self.threshold,
+            overlap=overlap,
+            key_words=key_words,
+            matched=matched,
+        )
