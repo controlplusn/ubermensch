@@ -27,7 +27,7 @@ class GraphStats:
 
 
 
-def build_graphs(notes, embeddings=None):
+def build_graph(notes, embeddings=None):
     try:
         import networkx as nx
     except ImportError:

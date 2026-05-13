@@ -18,7 +18,7 @@ class LinkSuggestion:
 
 
 
-def find_suggestion(G, top_n: int = 20) -> list[LinkSuggestion]:
+def find_suggestions(G, top_n: int = 20) -> list[LinkSuggestion]:
     section("Backlink suggestions")
     step("SUGGEST", "Scanning knowledge graph for unlinked similar notes")
     log("Looking for: high semantic similarity + no existing [[wikilink]]")
@@ -85,5 +85,5 @@ def _build_reason(semantic_score: float, shared_tags: list[str]) -> str:
 
     if shared_tags:
         parts.append(f"shared tags: {', '.join(f'#{t}' for t in shared_tags[:3])}")
-        
+
     return "  ·  ".join(parts)
