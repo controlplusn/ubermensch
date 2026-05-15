@@ -28,10 +28,12 @@ def get_or_prompt_vault() -> Path:
 
     if cfg and "vault_path" in cfg:
         vault_path = Path(cfg["vault_path"])
+
         section("Vault config")
         step("CONFIG", "Loading saved vault config")
         log(f"Config file: {CONFIG_PATH}")
         log(f"Vault path:  {vault_path}")
+
         if vault_path.exists():
             done("CONFIG", f"Active vault → {vault_path.name}")
             return vault_path
