@@ -1,6 +1,7 @@
 from __future__ import annotations
  
 import os
+import requests
 from dataclasses import dataclass
 from dotenv import load_dotenv
  
@@ -59,6 +60,131 @@ class GeminiBackend:
             raise
 
 
+# Ollama backend
+class OllamaBackend:
+    """
+    Prerequisites:
+        1. Install: https://ollama.ai
+        2. Pull: ollama pull llama3
+        3. Serve: ollama serve (auto-starts on most systems)
+    """
+
+    DEFAULT_MODEL = "llama3"
+    DEFAULT_HOST  = "http://localhost:11434"
+
+    def __init__(self, model: str | None = None, host: str | None = None):
+        self.model = model or os.environ.get("OLLAMA_MODEL", self.DEFAULT_MODEL)
+        self.host  = host  or os.environ.get("OLLAMA_HOST",  self.DEFAULT_HOST)
+
+    def ask(self, prompt: str) -> LLMResponse:
+        try:
+            import requests
+        except ImportError:
+            fail("LLM", "requests not installed. Run: pip install requests")
+            raise SystemExit(1)
+ 
+        step("LLM", f"Calling [bold]{self.model}[/bold] (Ollama local)")
+        log(f"Host: {self.host}  — fully local, no data leaves your machine")
+        log(f"Prompt size: ~{len(prompt.split())} words")
+
+        try:
+            resp = requests.post(
+                f"{self.host}/api/generate",
+                json={
+                    "model":  self.model,
+                    "prompt": prompt,
+                    "stream": False,
+                },
+                timeout=120,
+            )
+            resp.raise_for_status()
+            data   = resp.json()
+            answer = data.get("response", "").strip()
+ 
+            in_tok  = data.get("prompt_eval_count", 0)
+            out_tok = data.get("eval_count", 0)
+ 
+            done("LLM", f"Response received  ({in_tok} in / {out_tok} out tokens)")
+            return LLMResponse(
+                answer=answer,
+                model=self.model,
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+            )
+ 
+        except requests.exceptions.ConnectionError:
+            fail(
+                "LLM",
+                f"Cannot connect to Ollama at {self.host}\n"
+                "  Make sure Ollama is running: ollama serve\n"
+                "  Or install it from: https://ollama.ai",
+            )
+            raise
+        except requests.exceptions.Timeout:
+            fail("LLM", f"Ollama timed out — model '{self.model}' may be too large for your machine")
+            raise
+        except Exception as exc:
+            fail("LLM", f"Ollama error: {exc}")
+            raise
+    
+    def raw(self, prompt: str) -> str:
+        return self.ask(prompt).answer
+    
+    def list_models(self) -> list[str]:
+        try:
+            
+            resp = requests.get(f"{self.host}/api/tags", timeout=5)
+            resp.raise_for_status()
+            
+            return [m["name"] for m in resp.json().get("models", [])]
+        except Exception:
+            return []
+        
+    def is_available(self) -> bool:
+        try:
+            requests.get(f"{self.host}/api/tags", timeout=3)
+            return True
+        except Exception:
+            return False
+
+
+# Factory
+def get_backend(
+    backend_name: str = "gemini",
+    api_key: str | None = None,
+    model: str | None = None,
+) -> GeminiBackend | OllamaBackend:
+    name = backend_name.lower().strip()
+
+    if name == "ollama":
+        step("LLM", "Initializing Ollama local backend")
+
+        backend = OllamaBackend(model=model)
+
+        if not backend.is_available():
+            warn("LLM", "Ollama server not detected at localhost:11434")
+            log("Start it with: ollama serve")
+            log("Install from:  https://ollama.ai")
+        else:
+            models = backend.list_models()
+            log(f"Ollama running  |  Available models: {', '.join(models) or 'none pulled yet'}")
+
+            if model and model not in models:
+                warn("LLM", f"Model '{model}' not pulled yet")
+                log(f"Pull it with: ollama pull {model}")
+            done("LLM", f"Ollama ready  |  Model: {backend.model}")
+
+        return backend
+    
+    elif name == "gemini":
+        return GeminiBackend(api_key=api_key, model=model)
+    
+    else:
+        warn("LLM", f"Unknown backend '{backend_name}' — defaulting to Gemini")
+        return GeminiBackend(api_key=api_key)
+    
+
+
 # Prompt builder
 def build_rag_prompt(query: str, chunks) -> str:
     step("PROMPT", "Building grounded RAG prompt")
@@ -67,6 +193,7 @@ def build_rag_prompt(query: str, chunks) -> str:
 
     context_parts = []
     seen_titles = []
+    
     for chunk in chunks:
         if chunk.note_title not in seen_titles:
             seen_titles.append(chunk.note_title)
