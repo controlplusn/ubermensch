@@ -1,17 +1,5 @@
 from __future__ import annotations
 
-import sys
-
-# Windows defaults to cp1252; Rich uses Unicode (bullets, box drawing). Without
-# UTF-8, Console.print raises UnicodeEncodeError and commands like `status` appear blank.
-if sys.platform == "win32":
-    for _stream in (getattr(sys, "stdout", None), getattr(sys, "stderr", None)):
-        if _stream is not None and hasattr(_stream, "reconfigure"):
-            try:
-                _stream.reconfigure(encoding="utf-8", errors="replace")
-            except (AttributeError, OSError, ValueError):
-                pass
-
 import typer
 import os
 import yaml
