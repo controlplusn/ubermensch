@@ -22,7 +22,15 @@ console = Console(theme=_theme, highlight=False)
  
 # Track timing per named step
 _timers: dict[str, float] = {}
+_VERBOSE: bool = False
 
+
+def set_verbose(verbose: bool) -> None:
+    global _VERBOSE
+    _VERBOSE = verbose
+
+def is_verbose() -> bool:
+    return _VERBOSE
 
 def step(tag: str, message: str) -> None:
     _timers[tag] = time.perf_counter()
