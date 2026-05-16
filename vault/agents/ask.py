@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from vault.cli.logger import blank, done, fail, log, section, step, warn
 from vault.retrieval.embedder import embed_query
 from vault.retrieval.store import retrieve, store_stats
-from vault.agents.llm import GeminiBackend, build_rag_prompt, get_backend
+from vault.agents.llm import build_rag_prompt, get_backend
 from vault.eval.faithfulness import FaithfulnessEvaluator, EvalResult
 
 MAX_RETRIES = 2
