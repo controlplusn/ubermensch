@@ -48,8 +48,9 @@ class GeminiBackend:
 
         try:
             response = client.models.generate_content(model=self.MODEL, contents=prompt)
-            answer   = response.text.strip()
+            answer = response.text.strip()
             done("LLM", f"Response received  (~{len(answer.split())} words)")
+            
             return LLMResponse(answer=answer, model=self.MODEL)
         except Exception as exc:
             fail("LLM", f"Gemini API error: {exc}")
