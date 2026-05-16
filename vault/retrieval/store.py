@@ -39,21 +39,37 @@ def upsert_chunks(chunks, embeddings: list[list[float]]) -> None:
  
     collection = get_collection()
 
-    ids = [c.chunk_id for c in chunks]
-    documents = [c.text for c in chunks]
-    metadatas = [
-        {"note_title": c.note_title, "note_path": str(c.note_path)}
-        for c in chunks
-    ]
+
+    # TODO: use hash algorithm for id storing to prevent duplicates
+    seen_ids = set()
+    unique_ids = []
+    unique_docs = []
+    unique_meta = []
+    unique_emb = []
+
+    # ids = [c.chunk_id for c in chunks]
+    # documents = [c.text for c in chunks]
+    # metadatas = [
+    #     {"note_title": c.note_title, "note_path": str(c.note_path)}
+    #     for c in chunks
+    # ]
+
+    for i, c in enumerate(chunks):
+        cid = f"{c.chunk_id}_{i}" 
+        
+        unique_ids.append(cid)
+        unique_docs.append(c.text)
+        unique_meta.append({"note_title": c.note_title, "note_path": str(c.note_path)})
+        unique_emb.append(embeddings[i])
 
     # Batch upsert in groups of 500 (ChromaDB recommended batch size)
     BATCH = 500
-    for i in range(0, len(ids), BATCH):
-        batch_ids   = ids[i:i + BATCH]
-        batch_docs  = documents[i:i + BATCH]
-        batch_meta  = metadatas[i:i + BATCH]
-        batch_emb   = embeddings[i:i + BATCH]
- 
+    for i in range(0, len(unique_ids), BATCH):
+        batch_ids = unique_ids[i:i + BATCH]
+        batch_docs = unique_docs[i:i + BATCH]
+        batch_meta = unique_meta[i:i + BATCH]
+        batch_emb = unique_emb[i:i + BATCH]
+
         collection.upsert(
             ids=batch_ids,
             documents=batch_docs,
