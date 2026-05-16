@@ -19,16 +19,17 @@ class LLMResponse:
 
 # Gemini Backend
 class GeminiBackend:
-    MODEL = "gemini-2.5-flash-lite"
+    DEFAULT_MODEL = "gemini-2.5-flash-lite"
 
-    def __init__(self, api_key: str | None = None):
+    def __init__(self, api_key: str | None = None, model: str | None = None):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
+        self.MODEL = model or self.DEFAULT_MODEL
         if not self.api_key:
             fail(
                 "LLM",
-                "GEMINI_API_KEY not set. "
-                "Get a free key at https://aistudio.google.com/app/apikey\n"
-                "  Then run: set GEMINI_API_KEY=your_key_here",
+                "GEMINI_API_KEY not set.\n"
+                "  Get a free key: https://aistudio.google.com/app/apikey\n"
+                "  Then: set GEMINI_API_KEY=your_key_here",
             )
             raise SystemExit(1)
 
@@ -36,28 +37,26 @@ class GeminiBackend:
         try:
             from google import genai
         except ImportError:
-            fail("LLM", "google-generativeai not installed. Run: pip install -U google-genai")
+            fail("LLM", "google-genai not installed. Run: pip install -U google-genai")
             raise SystemExit(1)
-        
-        step("LLM", f"Calling [bold]{self.MODEL}[/bold] (Gemini free tier)")
-        log("Only the retrieved note chunks are sent — not your full vault")
-        log(f"Approximate prompt size: {len(prompt.split())} words")
+ 
+        step("LLM", f"Calling [bold]{self.MODEL}[/bold] (Gemini)")
+        log("Only retrieved note chunks are sent — not your full vault")
+        log(f"Prompt size: ~{len(prompt.split())} words")
  
         client = genai.Client(api_key=self.api_key)
 
         try:
-            response = client.models.generate_content(
-                model=self.MODEL,
-                contents=prompt,
-            )
-
-            answer = response.text.strip()
-            done("LLM", "Response received")
-
+            response = client.models.generate_content(model=self.MODEL, contents=prompt)
+            answer   = response.text.strip()
+            done("LLM", f"Response received  (~{len(answer.split())} words)")
             return LLMResponse(answer=answer, model=self.MODEL)
         except Exception as exc:
             fail("LLM", f"Gemini API error: {exc}")
             raise
+ 
+    def raw(self, prompt: str) -> str:
+        return self.ask(prompt).answer
 
 
 # Ollama backend
@@ -193,7 +192,7 @@ def build_rag_prompt(query: str, chunks) -> str:
 
     context_parts = []
     seen_titles = []
-    
+
     for chunk in chunks:
         if chunk.note_title not in seen_titles:
             seen_titles.append(chunk.note_title)
