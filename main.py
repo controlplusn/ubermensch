@@ -3,6 +3,8 @@ from __future__ import annotations
 import typer
 import os
 import yaml
+import subprocess
+import sys
 
 from pathlib import Path
 from typing import Optional
@@ -16,7 +18,7 @@ from rich.table import Table
 from rich.text import Text
 from rich import box
 
-from vault.cli.logger import blank, log, section, step, done, warn
+from vault.cli.logger import blank, log, section, step, done, warn, set_verbose
 
 from vault.config.discovery import get_or_prompt_vault, save_config, CONFIG_PATH
 
@@ -35,6 +37,8 @@ from rich.prompt import Confirm
 from vault.graph.builder import build_graph, load_graph
 from vault.graph.suggester import find_suggestions
 from vault.graph.mapper import map_topic
+
+from vault.cli.doctor import run_doctor
 
 
 
@@ -61,9 +65,9 @@ def main_callback(
         help="Show internal process logs (default: hidden)",
     ),
 ) -> None:
-    """Local-first agentic knowledge system for Obsidian vaults."""
-    from vault.cli.logger import set_verbose
+    # Local-first agentic knowledge system for Obsidian vaults
     set_verbose(verbose)
+
 
 
 # Vault init
@@ -86,9 +90,11 @@ def init(
         section("Vault init (manual path)")
         step("PATH", f"Using provided path: {path}")
         vault_path = path.expanduser().resolve()
+
         if not vault_path.exists():
             console.print(f"[bold red]Error:[/bold red] Path not found: {vault_path}")
             raise typer.Exit(1)
+        
         log(f"Resolved: {vault_path}")
         done("PATH", "Path accepted")
         save_config(vault_path)
@@ -97,13 +103,12 @@ def init(
 
     # Clear cache if --force
     if force:
-        from vault.cli.logger import warn
         warn("CACHE", "--force flag set: clearing hash cache for full re-index")
         cache = Path.home() / ".vault" / "cache" / "hashes.json"
+
         if cache.exists():
             cache.unlink()
-            from vault.cli.logger import log as _log
-            _log("Hash cache cleared")
+            log("Hash cache cleared")
 
 
     # 1: Ingest
@@ -132,12 +137,15 @@ def init(
     # 5. Build graph
     try:
         collection = get_collection()
-        results    = collection.get(include=["embeddings", "metadatas"])
+        results = collection.get(include=["embeddings", "metadatas"])
         note_emb_acc: dict = {}
+
         for emb, meta in zip(results["embeddings"], results["metadatas"]):
             title = meta.get("note_title", "")
+
             if title:
                 note_emb_acc.setdefault(title, []).append(emb)
+
         note_embeddings = {
             t: [sum(e[i] for e in el) / len(el) for i in range(len(el[0]))]
             for t, el in note_emb_acc.items()
@@ -150,6 +158,7 @@ def init(
 
     # Summary
     _print_summary(notes, vault_path, total_chunks=len(chunks))
+
 
 
 # Vault ask
@@ -183,10 +192,10 @@ def ask(
 @agent_app.command("run")
 def agent_run(
     llm: str = typer.Option("gemini", "--llm",   help="gemini or ollama"),
-    model: str = typer.Option("",       "--model", help="Model name override"),
-    key: Optional[str] = typer.Option(None,     "--key",   help="Gemini API key"),
-    auto: bool = typer.Option(False,    "--auto",  help="Skip confirmations"),
-    no_eval: bool = typer.Option(False,    "--no-eval", help="Disable faithfulness scoring"),
+    model: str = typer.Option("", "--model", help="Model name override"),
+    key: Optional[str] = typer.Option(None, "--key",   help="Gemini API key"),
+    auto: bool = typer.Option(False, "--auto",  help="Skip confirmations"),
+    no_eval: bool = typer.Option(False, "--no-eval", help="Disable faithfulness scoring"),
 ) -> None:
 
     vault_path = Path(get_or_prompt_vault())
@@ -196,11 +205,87 @@ def agent_run(
         vault_path=vault_path,
         llm_backend=llm,
         llm_model=model,
-        api_key=api_key,
+        api_key=api_key or os.environ.get("GEMINI_API_KEY", ""),
         auto=auto,
         show_eval=not no_eval,
     )
+
+
+
+# Vault doctor
+
+@app.command()
+def doctor() -> None:
+    run_doctor()
+
+
+# Vault publish
+@app.command()
+def publish(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Check without publishing"),
+    test: bool = typer.Option(False, "--test",    help="Publish to TestPyPI"),
+) -> None:
+    console.print(Rule("[bold]Vault publish[/bold]", style="cyan"))
+    console.print()
+
+    console.print("  [dim]Running health checks before publish...[/dim]\n")
+    ok = run_doctor()
+
+    if not ok:
+        console.print("[red]Fix failing checks before publishing.[/red]")
+        raise typer.Exit(1)
  
+    if dry_run:
+        console.print("  [yellow]DRY RUN — build and check only, not uploading[/yellow]\n")
+ 
+    # Check build tools
+    console.print("  Checking build tools...")
+    for pkg in ("build", "twine"):
+        try:
+            __import__(pkg)
+        except ImportError:
+            console.print(f"  [red]Missing: {pkg}[/red]  Run: pip install {pkg}")
+            raise typer.Exit(1)
+        
+    # Build
+    console.print("\n  [bold]Building package...[/bold]")
+    result = subprocess.run(
+        [sys.executable, "-m", "build"],
+        capture_output=True, text=True,
+    )
+
+    if result.returncode != 0:
+        console.print(f"  [red]Build failed:[/red]\n{result.stderr}")
+        raise typer.Exit(1)
+    console.print("  [green]Build successful[/green]")
+
+    if dry_run:
+        # Validate with twine check
+        result2 = subprocess.run(
+            [sys.executable, "-m", "twine", "check", "dist/*"],
+            capture_output=True, text=True,
+        )
+        console.print(result2.stdout)
+        console.print("  [green]Dry run complete — package is valid[/green]")
+        return
+    
+    # Upload
+    repo_flag = ["--repository", "testpypi"] if test else []
+    dest = "TestPyPI" if test else "PyPI"
+    console.print(f"\n  [bold]Uploading to {dest}...[/bold]")
+ 
+    result3 = subprocess.run(
+        [sys.executable, "-m", "twine", "upload"] + repo_flag + ["dist/*"],
+    )
+    if result3.returncode == 0:
+        pkg_name = "vault-kb"
+        if test:
+            console.print(f"\n  [green]Published to TestPyPI[/green]")
+            console.print(f"  Install: pip install -i https://test.pypi.org/simple/ {pkg_name}")
+        else:
+            console.print(f"\n  [green]Published to PyPI[/green]")
+            console.print(f"  Install: pip install {pkg_name}")
+
 
 
 # Vault graph build
@@ -226,8 +311,8 @@ def graph_build(
 
         try:
             collection = get_collection()
-            results    = collection.get(include=["embeddings", "metadatas"])
-            acc: dict  = {}
+            results = collection.get(include=["embeddings", "metadatas"])
+            acc: dict = {}
 
             for emb, meta in zip(results["embeddings"], results["metadatas"]):
                 t = meta.get("note_title", "")
@@ -335,10 +420,15 @@ def config_cmd(
         step("KEY", "Saving Gemini API key to config")
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         cfg = {}
+
         if CONFIG_PATH.exists():
             cfg = yaml.safe_load(CONFIG_PATH.read_text()) or {}
+
+        cfg = yaml.safe_load(CONFIG_PATH.read_text()) if CONFIG_PATH.exists() else {}
         cfg["gemini_api_key"] = set_key
+
         CONFIG_PATH.write_text(yaml.dump(cfg))
+
         log(f"Key saved to {CONFIG_PATH}")
         done("KEY", "API key saved — you won't need --key on future runs")
         return
@@ -375,7 +465,7 @@ def _print_ask_result(result, show_eval=True, eval_verbose=False) -> None:
     # Retry notice
     if result.attempts > 1:
         console.print(
-            f"  [dim]ℹ Retrieved after {result.attempts} attempt(s) "
+            f"  [dim] Retrieved after {result.attempts} attempt(s) "
             f"(re-retrieval loop expanded the query for better coverage)[/dim]\n"
         )
 
@@ -415,6 +505,8 @@ def _print_ask_result(result, show_eval=True, eval_verbose=False) -> None:
         if eval_verbose and er.claims:
             console.print()
             console.print(Rule("[dim]Claim-level breakdown (--eval)[/dim]", style="dim"))
+            use_nli = any(getattr(cr, "scorer_used", "") == "nli" for cr in er.claims)
+            
             claim_table = Table(
                 box=box.ROUNDED,
                 show_header=True,
@@ -424,33 +516,43 @@ def _print_ask_result(result, show_eval=True, eval_verbose=False) -> None:
             )
             claim_table.add_column("#", style="dim",  width=3,  no_wrap=True)
             claim_table.add_column("Claim", style="white", ratio=5)
-            claim_table.add_column("Overlap", style="dim",  width=9,  no_wrap=True)
-            claim_table.add_column("Verdict", width=14,     no_wrap=True)
-            claim_table.add_column("Matched words", style="dim", ratio=2)
+            
+            if use_nli:
+                claim_table.add_column("NLI label",  width=15, no_wrap=True)
+                claim_table.add_column("Entail",     width=8,  no_wrap=True)
+            else:
+                claim_table.add_column("Overlap",    width=9,  no_wrap=True)
+                claim_table.add_column("Verdict",    width=14, no_wrap=True)
+
+            claim_table.add_column("Scorer", style="dim", width=9, no_wrap=True)
  
             for i, cr in enumerate(er.claims, 1):
-                verdict = (
-                    "[green]✓ supported[/green]"
-                    if cr.supported
-                    else "[red]✗ unsupported[/red]"
-                )
-                matched_str = ", ".join(cr.matched[:6]) + ("…" if len(cr.matched) > 6 else "")
-                claim_table.add_row(
-                    str(i),
-                    cr.text[:120] + ("…" if len(cr.text) > 120 else ""),
-                    f"{cr.overlap:.0%}",
-                    verdict,
-                    matched_str or "[dim]none[/dim]",
-                )
- 
+                if use_nli:
+                    nli_icon = {
+                        "entailment":    "[green]✓ entailed[/green]",
+                        "contradiction": "[red]✗ contradicted[/red]",
+                        "neutral":       "[yellow]~ neutral[/yellow]",
+                    }.get(getattr(cr, "nli_label", ""), "?")
+                    claim_table.add_row(
+                        str(i),
+                        cr.text[:100] + ("…" if len(cr.text) > 100 else ""),
+                        nli_icon,
+                        f"{getattr(cr, 'nli_entailment', 0):.2f}",
+                        getattr(cr, "scorer_used", ""),
+                    )
+                else:
+                    verdict = "[green]✓ supported[/green]" if cr.supported else "[red]✗ unsupported[/red]"
+                    claim_table.add_row(
+                        str(i),
+                        cr.text[:100] + ("…" if len(cr.text) > 100 else ""),
+                        f"{cr.overlap:.0%}",
+                        verdict,
+                        getattr(cr, "scorer_used", "keyword"),
+                    )
             console.print(Padding(claim_table, (0, 2)))
  
-            if er.skipped:
-                console.print(
-                    f"\n  [dim]  {er.skipped} meta-sentence(s) excluded from scoring "
-                    f"(e.g. 'I couldn't find...')[/dim]"
-                )
- 
+            if hasattr(er, "scorer_used"):
+                console.print(f"\n  [dim]Scorer: {er.scorer_used}[/dim]")
     console.print()
 
 
@@ -562,15 +664,17 @@ def _print_summary(notes, vault_path, total_chunks=0, graph=None) -> None:
     total_notes = len(notes)
     total_words = sum(len(n.content.split()) for n in notes)
     total_links = sum(len(n.wikilinks) for n in notes)
-    total_bl    = sum(len(n.backlinks) for n in notes)
-    total_tags  = sum(len(n.tags) for n in notes)
-    orphans     = sum(1 for n in notes if not n.wikilinks and not n.backlinks)
+    total_bl = sum(len(n.backlinks) for n in notes)
+    total_tags = sum(len(n.tags) for n in notes)
+    orphans = sum(1 for n in notes if not n.wikilinks and not n.backlinks)
  
     tag_freq: dict[str, int] = {}
+
     for n in notes:
         for t in n.tags:
             tag_freq[t] = tag_freq.get(t, 0) + 1
-    top_tags   = sorted(tag_freq.items(), key=lambda x: -x[1])[:12]
+
+    top_tags = sorted(tag_freq.items(), key=lambda x: -x[1])[:12]
     top_linked = sorted(notes, key=lambda n: len(n.backlinks), reverse=True)[:5]
  
     header = Text()
