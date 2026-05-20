@@ -1,0 +1,29 @@
+# Project documentation
+include README.md
+include LICENSE
+include pyproject.toml
+
+# Config and environment templates
+include .env.example
+
+# Example vault for new users
+recursive-include example_vault *.md
+
+# Test suite
+recursive-include tests *.py
+include pytest.ini
+
+# Exclude things that should never ship
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *.so
+global-exclude .DS_Store
+global-exclude Thumbs.db
+global-exclude .env
+global-exclude .vault
+prune .git
+prune .venv
+prune venv
+prune dist
+prune build
+prune *.egg-info
