@@ -32,8 +32,7 @@
   </g>
 
   <!-- Top label -->
-  <text x="40" y="36" font-family="monospace" font-size="11" fill="#3a5a8a" letter-spacing="3">VAULT-KB — LOCAL-FIRST KNOWLEDGE SYSTEM</text>
-  <text x="740" y="36" font-family="monospace" font-size="11" fill="#3a5a8a" letter-spacing="2">© 2025 · MIT LICENSE</text>
+  <text x="40" y="36" font-family="monospace" font-size="11" fill="#3a5a8a" letter-spacing="3">UBERMENSCH-KB — LOCAL-FIRST KNOWLEDGE SYSTEM</text>
 
   <!-- Top border line -->
   <line x1="40" y1="48" x2="860" y2="48" stroke="#1e3a5f" stroke-width="0.8"/>
