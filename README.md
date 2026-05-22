@@ -139,3 +139,57 @@ vault --verbose agent run            # show all internal process logs
 ```
 
 ---
+
+## Commands
+**Core**
+```bash
+vault init --path <vault_dir>        # parse → chunk → embed → store → graph
+vault init --force                   # re-index everything (clears hash cache)
+vault ask "your question"            # RAG query with note citations
+vault ask "..." --eval               # + per-claim NLI faithfulness breakdown
+vault ask "..." --llm ollama         # use local Ollama instead of Gemini
+vault status                         # notes, chunks, graph coverage, PageRank hubs
+vault doctor                         # full system health check
+vault config                         # view saved config
+vault config --set-key <key>         # save Gemini API key
+vault publish --dry-run              # verify package before publishing to PyPI
+```
+
+**Graph**
+```bash
+vault graph build                    # build knowledge graph from vault
+vault graph build --no-semantic      # wikilinks + tags only (faster)
+vault graph map "tokenizer"          # BFS idea cluster around a topic
+vault graph map "transformer" --depth 3
+vault graph suggest                  # show unlinked semantically similar notes
+vault graph suggest --confirm --write  # interactively write backlinks to vault
+```
+
+**Agent (interactive loop)**
+```bash
+vault agent run                      # launch with Gemini
+vault agent run --llm ollama         # launch with local Ollama
+vault agent run --llm ollama --model mistral
+vault --verbose agent run            # show all internal process logs
+```
+
+**Inside the agent loop:**
+```bash
+> Any question              → RAG query with re-retrieval loop
+> /plan <question>          → multi-step planner for complex questions
+> /synthesize <topic>       → generate + save cross-note synthesis to vault
+> /graph map <topic>        → BFS idea cluster
+> /graph suggest            → backlink suggestions
+> /graph build              → rebuild knowledge graph
+> /llm gemini               → switch to Gemini backend
+> /llm ollama [model]       → switch to local Ollama
+> /llm status               → show current backend + model
+> /verbose on|off           → show or hide internal process logs
+> /eval on|off              → toggle faithfulness scoring
+> /history                  → session question history
+> /clear                    → clear screen
+> /help                     → all commands
+> /exit                     → quit
+```
+
+---
