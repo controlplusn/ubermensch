@@ -207,4 +207,6 @@ vault --verbose agent run            # show all internal process logs
 
 ## Architecture
 
-<img src="assets/Ubermensch_Architecture.png" width="60%" heigh="70%" />
+<div align="center">
+    <img src="assets/Ubermensch_Architecture.png" width="60%"/>
+</div>
