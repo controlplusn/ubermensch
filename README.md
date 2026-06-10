@@ -39,22 +39,20 @@ vault agent run
     depth 2  BPE and WordPiece     semantic       0.66
 ```
 
-
 ## Features
 
-| Feature | Description |
-|----------|----------|
-| RAG over your vault  | Semantic search across all your obsidian notes, grounded answers with citations   |
-| Knowledge graph   | Built from wikilinks, shared tags, and semantic similarity   |
-| Backlink suggestions   | Discovers note connections you haven't made yet   |
-| Idea mapping   | BFS exploration of any topic through your vault graph   |
-| Multi-step planner  | Decomposes complex questions into focused sub-questions   |
-| Cross-note synthesis   | Generates summaries and files them back into your vault   |
-| NLI faithfulness scoring   | Hallucination detection via cross-encoder on every answer   |
-| Interactive agent loop   | REPL-style session — all commands available, stays open   |
-| Local-first   | Embeddings on-device, no vault content sent externally   |
-| Dual LLM backend   | Gemini Flash (free API) or Ollama (fully offline)   |
-
+| Feature                  | Description                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------- |
+| RAG over your vault      | Semantic search across all your obsidian notes, grounded answers with citations |
+| Knowledge graph          | Built from wikilinks, shared tags, and semantic similarity                      |
+| Backlink suggestions     | Discovers note connections you haven't made yet                                 |
+| Idea mapping             | BFS exploration of any topic through your vault graph                           |
+| Multi-step planner       | Decomposes complex questions into focused sub-questions                         |
+| Cross-note synthesis     | Generates summaries and files them back into your vault                         |
+| NLI faithfulness scoring | Hallucination detection via cross-encoder on every answer                       |
+| Interactive agent loop   | REPL-style session — all commands available, stays open                         |
+| Local-first              | Embeddings on-device, no vault content sent externally                          |
+| Dual LLM backend         | Gemini Flash (free API) or Ollama (fully offline)                               |
 
 ## Quick Start
 
@@ -76,8 +74,11 @@ vault agent run
 ```
 
 ---
+
 ## Installation
+
 **Base Install**
+
 ```bash
 pip install ubermensch-kb
 ```
@@ -87,7 +88,9 @@ pip install ubermensch-kb
 ---
 
 ## Commands
+
 **Core**
+
 ```bash
 vault init --path <vault_dir>        # parse → chunk → embed → store → graph
 vault init --force                   # re-index everything (clears hash cache)
@@ -102,6 +105,7 @@ vault publish --dry-run              # verify package before publishing to PyPI
 ```
 
 **Graph**
+
 ```bash
 vault graph build                    # build knowledge graph from vault
 vault graph build --no-semantic      # wikilinks + tags only (faster)
@@ -112,6 +116,7 @@ vault graph suggest --confirm --write  # interactively write backlinks to vault
 ```
 
 **Agent (interactive loop)**
+
 ```bash
 vault agent run                      # launch with Gemini
 vault agent run --llm ollama         # launch with local Ollama
@@ -120,6 +125,7 @@ vault --verbose agent run            # show all internal process logs
 ```
 
 **Inside the agent loop:**
+
 ```bash
 > Any question              → RAG query with re-retrieval loop
 > /plan <question>          → multi-step planner for complex questions
@@ -141,7 +147,9 @@ vault --verbose agent run            # show all internal process logs
 ---
 
 ## Commands
+
 **Core**
+
 ```bash
 vault init --path <vault_dir>        # parse → chunk → embed → store → graph
 vault init --force                   # re-index everything (clears hash cache)
@@ -156,6 +164,7 @@ vault publish --dry-run              # verify package before publishing to PyPI
 ```
 
 **Graph**
+
 ```bash
 vault graph build                    # build knowledge graph from vault
 vault graph build --no-semantic      # wikilinks + tags only (faster)
@@ -166,6 +175,7 @@ vault graph suggest --confirm --write  # interactively write backlinks to vault
 ```
 
 **Agent (interactive loop)**
+
 ```bash
 vault agent run                      # launch with Gemini
 vault agent run --llm ollama         # launch with local Ollama
@@ -174,6 +184,7 @@ vault --verbose agent run            # show all internal process logs
 ```
 
 **Inside the agent loop:**
+
 ```bash
 > Any question              → RAG query with re-retrieval loop
 > /plan <question>          → multi-step planner for complex questions
@@ -193,3 +204,7 @@ vault --verbose agent run            # show all internal process logs
 ```
 
 ---
+
+## Architecture
+
+<img src="assets/banner.svg" width="100%" />
